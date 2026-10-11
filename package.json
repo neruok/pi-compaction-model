@@ -1,0 +1,61 @@
+{
+  "name": "@neruok/pi-compaction-model",
+  "version": "0.1.0",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Select a separate summarization model for Pi compaction",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neruok/pi-compaction-model.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "pi": {
+    "extensions": [
+      "./compaction-model.ts"
+    ]
+  },
+  "files": [
+    "compaction-model.ts",
+    "lib/*.ts",
+    "README.md",
+    "docs/pi-compaction-model.md"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.1.0",
+    "@earendil-works/pi-ai": "^1.1.0",
+    "@earendil-works/pi-tui": "^1.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-tui": "1.1.0",
+    "typescript": "5.9.3",
+    "@types/node": "26.6.5"
+  },
+  "scripts": {
+    "check": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run check",
+    "prepublishOnly": "npm run verify"
+  }
+}
