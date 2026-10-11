@@ -69,6 +69,38 @@ Compaction can disrupt prompt caching. More frequent compaction does not always 
 
 Use one compaction override at a time. Other extensions can replace successful hook results.
 
+## Failure diagnostics
+
+A failed compaction reports a safe category and the latest summary request's token budget. For example:
+
+```text
+Compaction stopped. Category: output-limit.
+Estimated input: 250000 tokens. Output allowance: 13107 tokens. Context window: 1000000 tokens.
+No default-model fallback.
+```
+
+| Category | Meaning |
+| --- | --- |
+| `settings` | The extension could not read valid settings. |
+| `model-unavailable` | Model lookup failed, or the selected model is missing or virtual. |
+| `authentication-unavailable` | Pi's configured-auth check failed. |
+| `context-window` | The local input estimate plus output allowance exceeds the window, or the window is not positive. |
+| `provider-error` | Provider dispatch threw an exception or returned an error response. |
+| `output-limit` | The response reached its output limit. The summary is incomplete. |
+| `aborted` | The signal or provider response indicates an abort. |
+| `unexpected-stop` | The response has another non-success stop reason. |
+| `tool-call` | A normal-stop response contains a tool call. |
+| `empty-summary` | A normal-stop response contains no nonempty text. |
+| `summary-error` | Another native-summary operation failed. |
+
+The token counts describe the summary request, not the session footer. Split-turn failures report the latest request, not the earlier history request.
+
+Counts show `unknown` before request preparation or when a numeric value is invalid. Input counts are estimates, not provider tokenizer counts.
+
+Reports do not include raw exceptions, provider error messages, model identifiers, prompts, or summary contents. The `provider-error` category does not distinguish remote authentication, quota, network, or provider-side context failures.
+
+Pi can then show `Compaction cancelled` because the extension stopped the operation. That message does not prove that you cancelled it.
+
 ## Settings
 
 The selection persists across sessions in `<agentDir>/compaction-model.json`. Pi's `getAgentDir()` selects the directory, including profile-specific directories.
@@ -119,5 +151,6 @@ The [generated contract](docs/pi-compaction-model.md) comes from the maintainer 
 | AC-6 | Installed-Pi package loading | Failed: command absent | Pass |
 | AC-7 | Public metadata, peers, npm installation docs | Failed: package private | Pass |
 | AC-8 | Prepublish verification success and failure | Failed: hook absent | Pass |
+| AC-9 | Safe categories, request budgets, privacy and abort precedence | Failed: generic report | Pass |
 
 Additional `AgentSession` checks confirm single summary persistence, retained context, reload metadata, and failure cancellation without fallback.

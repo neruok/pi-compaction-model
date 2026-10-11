@@ -11,19 +11,46 @@ const SOURCE = 'pi-compaction-model';
 const USAGE = 'Usage: /compaction-model [show | reset | <provider> <model>]. Bare command opens the picker. Saves globally.';
 const settingsPath = () => join(getAgentDir(), 'compaction-model.json');
 
+type FailureCategory = 'settings' | 'model-unavailable' | 'authentication-unavailable' |
+  'context-window' | 'provider-error' | 'output-limit' | 'aborted' | 'unexpected-stop' |
+  'tool-call' | 'empty-summary' | 'summary-error';
+type TokenBudget = { input: number; output: number; window: number };
+
+class CompactionFailure extends Error {
+  readonly category: FailureCategory;
+  constructor(category: FailureCategory) {
+    super(category);
+    this.category = category;
+  }
+}
+
+function failureReport(category: FailureCategory, budget?: TokenBudget): string {
+  const tokens = (value: number | undefined) =>
+    value !== undefined && Number.isSafeInteger(value) && value >= 0 ? value : 'unknown';
+  return `Compaction stopped. Category: ${category}.\n` +
+    `Estimated input: ${tokens(budget?.input)} tokens. Output allowance: ${tokens(budget?.output)} tokens. Context window: ${tokens(budget?.window)} tokens.\n` +
+    'No default-model fallback.';
+}
+
 function resolveModel(ctx: ExtensionContext, pair: Selection) {
   const model = ctx.modelRegistry.find(pair.provider, pair.model);
-  if (!model || model.api === 'pi-virtual' || !ctx.modelRegistry.hasConfiguredAuth(model)) {
-    throw new Error('Model unavailable.');
+  if (!model || model.api === 'pi-virtual') throw new CompactionFailure('model-unavailable');
+  try {
+    if (!ctx.modelRegistry.hasConfiguredAuth(model)) throw new CompactionFailure('authentication-unavailable');
+  } catch {
+    throw new CompactionFailure('authentication-unavailable');
   }
   return model;
 }
 
 function requireSummary(response: AssistantMessage, signal: AbortSignal): void {
-  if (signal.aborted || response.stopReason !== 'stop' ||
-      response.content.some(block => block.type === 'toolCall') ||
-      !response.content.some(block => block.type === 'text' && block.text.trim())) {
-    throw new Error('Summary unavailable.');
+  if (signal.aborted || response.stopReason === 'aborted') throw new CompactionFailure('aborted');
+  if (response.stopReason === 'error') throw new CompactionFailure('provider-error');
+  if (response.stopReason === 'length') throw new CompactionFailure('output-limit');
+  if (response.stopReason !== 'stop') throw new CompactionFailure('unexpected-stop');
+  if (response.content.some(block => block.type === 'toolCall')) throw new CompactionFailure('tool-call');
+  if (!response.content.some(block => block.type === 'text' && block.text.trim())) {
+    throw new CompactionFailure('empty-summary');
   }
 }
 
@@ -99,33 +126,47 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on('session_before_compact', async (event, ctx) => {
+    let category: FailureCategory = 'settings';
+    let budget: TokenBudget | undefined;
+    let configured = false;
     try {
       const pair = await loadSelection(settingsPath());
       if (!pair) return;
-      if (event.signal.aborted) throw new Error('Compaction cancelled.');
+      configured = true;
+      if (event.signal.aborted) throw new CompactionFailure('aborted');
+      category = 'model-unavailable';
       const model = resolveModel(ctx, pair);
+      category = 'summary-error';
       const result = await compact(
         cumulativePreparation(event), model, undefined, undefined, event.customInstructions, event.signal,
         undefined,
         async (_model, context, options) => {
-          if (event.signal.aborted) throw new Error('Compaction cancelled.');
+          category = 'summary-error';
+          budget = undefined;
+          if (event.signal.aborted) throw new CompactionFailure('aborted');
           const inputTokens = context.messages.reduce((sum, message) => sum + estimateTokens(message), 0);
-          if (!(model.contextWindow > 0) || inputTokens + (options?.maxTokens ?? 0) > model.contextWindow) {
-            throw new Error('Compaction context exceeds the selected model window.');
+          budget = { input: inputTokens, output: options?.maxTokens ?? 0, window: model.contextWindow };
+          if (!(model.contextWindow > 0) || inputTokens + budget.output > model.contextWindow) {
+            throw new CompactionFailure('context-window');
           }
+          category = 'provider-error';
           const response = await ctx.modelRegistry.streamSimple(model, context, { ...options, maxRetries: 0 }).result();
           requireSummary(response, event.signal);
+          category = 'summary-error';
           // compact() only needs the validated final result, not live stream events.
           const checked = createAssistantMessageEventStream();
           checked.end(response);
           return checked;
         },
       );
-      if (event.signal.aborted) throw new Error('Compaction cancelled.');
+      if (event.signal.aborted) throw new CompactionFailure('aborted');
       return { compaction: { ...result, details: { ...result.details as object, source: SOURCE } } };
-    } catch {
+    } catch (error) {
+      // Use only local categories. Never print exception or provider text.
+      const failure = configured && event.signal.aborted ? 'aborted'
+        : error instanceof CompactionFailure ? error.category : category;
       // Throwing here can let Pi fall through to its expensive default model.
-      report(ctx, 'Compaction stopped. Check the selected model, authentication, settings, and context window. No default-model fallback.', 'error');
+      report(ctx, failureReport(failure, budget), 'error');
       return { cancel: true };
     }
   });
