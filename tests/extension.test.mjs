@@ -166,7 +166,7 @@ test('AC-5 preserved: no selection leaves Pi default compaction untouched', asyn
   assert.equal(f.requests.length, 0);
 });
 
-test('AC-6 installed Pi loads package and discovers command/hook without generation', async t => {
+test('AC-6 CC-AC-1 installed Pi loads package and discovers command/hook without generation', async t => {
   const f = await fixture(t, false);
   assert.ok(f.commands.has('compaction-model'), 'package must expose its command');
   const loader = new DefaultResourceLoader({ cwd: f.dir, agentDir: f.dir, settingsManager: SettingsManager.inMemory(), noSkills: true, noPromptTemplates: true, noThemes: true, additionalExtensionPaths: [new URL('../', import.meta.url).pathname] });
@@ -177,7 +177,7 @@ test('AC-6 installed Pi loads package and discovers command/hook without generat
   assert.deepEqual([...result.extensions[0].commands.keys()], ['compaction-model']);
   assert.ok(result.extensions[0].handlers.has('session_before_compact'));
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.dependencies, undefined);
+  assert.deepEqual(Object.keys(manifest.dependencies), ['@neruok/pi-common'], 'CC-AC-1: only the common library is a runtime dependency, never host SDKs');
   assert.equal(manifest.peerDependencies['@earendil-works/pi-coding-agent'], '^1.1.0');
   assert.equal(f.requests.length, 0);
 });

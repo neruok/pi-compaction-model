@@ -1,6 +1,6 @@
 {
   "name": "@neruok/pi-compaction-model",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -26,12 +26,15 @@
     "README.md",
     "docs/pi-compaction-model.md"
   ],
+  "dependencies": {
+    "@neruok/pi-common": "0.1.0"
+  },
   "engines": {
     "node": ">=24"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.1.0",
     "@earendil-works/pi-ai": "^1.1.0",
+    "@earendil-works/pi-coding-agent": "^1.1.0",
     "@earendil-works/pi-tui": "^1.1.0"
   },
   "peerDependenciesMeta": {
@@ -46,11 +49,11 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.1.0",
     "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "@earendil-works/pi-tui": "1.1.0",
-    "typescript": "5.9.3",
-    "@types/node": "26.6.5"
+    "@types/node": "26.6.5",
+    "typescript": "5.9.3"
   },
   "scripts": {
     "check": "node --test tests/*.test.mjs",

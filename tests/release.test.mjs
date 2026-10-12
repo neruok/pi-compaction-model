@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const peers = ['@earendil-works/pi-coding-agent', '@earendil-works/pi-ai', '@earendil-works/pi-tui'];
 
-test('AC-7 manifest and README support public npm installation with supported Pi peers', async () => {
+test('AC-7 CC-AC-1 manifest and README support public npm installation with supported Pi peers', async () => {
   assert.ok(!manifest.private, 'private must not block npm publication');
   assert.equal(manifest.publishConfig?.access, 'public');
   assert.deepEqual(Object.keys(manifest.peerDependencies).sort(), [...peers].sort());
@@ -16,7 +16,7 @@ test('AC-7 manifest and README support public npm installation with supported Pi
     assert.equal(manifest.peerDependencies[peer], '^1.1.0');
     assert.equal(manifest.peerDependenciesMeta[peer].optional, true);
   }
-  assert.equal(manifest.dependencies, undefined, 'Pi imports come from the host');
+  assert.deepEqual(Object.keys(manifest.dependencies), ['@neruok/pi-common'], 'CC-AC-1: only the common library is a runtime dependency, never host SDKs');
   const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.ok(readme.includes('pi install npm:@neruok/pi-compaction-model'));
   assert.match(readme, /Tested with[^\n]*Pi 1\.1\.0/);

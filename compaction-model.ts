@@ -1,11 +1,14 @@
 import { join } from 'node:path';
-import { createAssistantMessageEventStream, getSupportedThinkingLevels, type Api, type AssistantMessage, type Model } from '@earendil-works/pi-ai';
+import { createAssistantMessageEventStream, type Api, type AssistantMessage, type Model } from '@earendil-works/pi-ai';
 import {
   compact, estimateTokens, getAgentDir,
   type ExtensionAPI, type ExtensionContext, type SessionBeforeCompactEvent,
 } from '@earendil-works/pi-coding-agent';
 import { loadSelection, saveSelection, REASONING_LEVELS, type Reasoning, type Selection } from './lib/settings.ts';
 import { selectModel } from './lib/model-picker.ts';
+
+import { supportedReasoning } from '@neruok/pi-common/models';
+import { reportCommand } from '@neruok/pi-common/presentation';
 
 const SOURCE = 'pi-compaction-model';
 const USAGE = 'Usage: /compaction-model [show | reset | <provider> <model> | reasoning [level]]. Bare command opens the model picker. Saves globally.';
@@ -30,10 +33,6 @@ function failureReport(category: FailureCategory, budget?: TokenBudget): string 
   return `Compaction stopped. Category: ${category}.\n` +
     `Estimated input: ${tokens(budget?.input)} tokens. Output allowance: ${tokens(budget?.output)} tokens. Context window: ${tokens(budget?.window)} tokens.\n` +
     'No default-model fallback.';
-}
-
-function supportedReasoning(model: Model<Api>): Reasoning[] {
-  return ['default', ...getSupportedThinkingLevels(model)];
 }
 
 function resolveModel(ctx: ExtensionContext, pair: Selection) {
@@ -85,13 +84,7 @@ function cumulativePreparation(event: SessionBeforeCompactEvent) {
 
 export default function (pi: ExtensionAPI): void {
   const report = (ctx: ExtensionContext, content: string, level: 'info' | 'error') => {
-    try {
-      if (ctx.hasUI) ctx.ui.notify(content, level);
-      else pi.sendMessage({ customType: SOURCE, content, display: true, details: { level } }, { triggerTurn: false });
-    } catch {
-      // Reporting must not turn explicit cancellation into hook fallthrough.
-      console.error('pi-compaction-model: could not report the result.');
-    }
+    reportCommand(pi, ctx, SOURCE, content, level);
   };
 
   pi.registerCommand('compaction-model', {
