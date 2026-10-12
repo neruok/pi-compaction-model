@@ -1,14 +1,14 @@
 import { join } from 'node:path';
-import { createAssistantMessageEventStream, type AssistantMessage } from '@earendil-works/pi-ai';
+import { createAssistantMessageEventStream, getSupportedThinkingLevels, type Api, type AssistantMessage, type Model } from '@earendil-works/pi-ai';
 import {
   compact, estimateTokens, getAgentDir,
   type ExtensionAPI, type ExtensionContext, type SessionBeforeCompactEvent,
 } from '@earendil-works/pi-coding-agent';
-import { loadSelection, saveSelection, type Selection } from './lib/settings.ts';
+import { loadSelection, saveSelection, REASONING_LEVELS, type Reasoning, type Selection } from './lib/settings.ts';
 import { selectModel } from './lib/model-picker.ts';
 
 const SOURCE = 'pi-compaction-model';
-const USAGE = 'Usage: /compaction-model [show | reset | <provider> <model>]. Bare command opens the picker. Saves globally.';
+const USAGE = 'Usage: /compaction-model [show | reset | <provider> <model> | reasoning [level]]. Bare command opens the model picker. Saves globally.';
 const settingsPath = () => join(getAgentDir(), 'compaction-model.json');
 
 type FailureCategory = 'settings' | 'model-unavailable' | 'authentication-unavailable' |
@@ -32,6 +32,10 @@ function failureReport(category: FailureCategory, budget?: TokenBudget): string 
     'No default-model fallback.';
 }
 
+function supportedReasoning(model: Model<Api>): Reasoning[] {
+  return ['default', ...getSupportedThinkingLevels(model)];
+}
+
 function resolveModel(ctx: ExtensionContext, pair: Selection) {
   const model = ctx.modelRegistry.find(pair.provider, pair.model);
   if (!model || model.api === 'pi-virtual') throw new CompactionFailure('model-unavailable');
@@ -39,6 +43,9 @@ function resolveModel(ctx: ExtensionContext, pair: Selection) {
     if (!ctx.modelRegistry.hasConfiguredAuth(model)) throw new CompactionFailure('authentication-unavailable');
   } catch {
     throw new CompactionFailure('authentication-unavailable');
+  }
+  if (pair.reasoning !== undefined && !supportedReasoning(model).includes(pair.reasoning)) {
+    throw new CompactionFailure('settings');
   }
   return model;
 }
@@ -88,10 +95,12 @@ export default function (pi: ExtensionAPI): void {
   };
 
   pi.registerCommand('compaction-model', {
-    description: 'Choose a separate compaction model. Picker, show, reset, or <provider> <model>. Saves globally.',
+    description: 'Choose a separate compaction model and reasoning effort. Picker, show, reset, <provider> <model>, or reasoning [level]. Saves globally.',
     async handler(args, ctx) {
       const tokens = args.trim().split(/\s+/).filter(Boolean);
-      if (tokens.length > 2 || (tokens.length === 1 && !['show', 'reset'].includes(tokens[0]))) {
+      const reasoningCommand = tokens[0] === 'reasoning';
+      if (tokens.length > 2 || (tokens.length === 1 && !['show', 'reset', 'reasoning'].includes(tokens[0])) ||
+          (reasoningCommand && tokens.length === 2 && !REASONING_LEVELS.includes(tokens[1] as Reasoning))) {
         report(ctx, USAGE, 'error');
         return;
       }
@@ -104,8 +113,34 @@ export default function (pi: ExtensionAPI): void {
           return;
         }
         const current = await loadSelection(path);
+        if (reasoningCommand) {
+          if (!current) {
+            report(ctx, 'Select a compaction model first with /compaction-model.', 'error');
+            return;
+          }
+          await ctx.waitForIdle();
+          // Allow repair when a previously supported level is no longer available.
+          const model = resolveModel(ctx, { provider: current.provider, model: current.model });
+          const choices = supportedReasoning(model);
+          if (tokens.length === 1 && !ctx.hasUI) {
+            report(ctx, `Reasoning: ${current.reasoning ?? 'default'}.\nSupported compaction reasoning: ${choices.join(', ')}.\nUse /compaction-model reasoning <level>.`, 'info');
+            return;
+          }
+          const level = tokens[1] ?? await ctx.ui.select(`Compaction reasoning (current: ${current.reasoning ?? 'default'})`, choices);
+          if (level === undefined) {
+            report(ctx, 'Selection cancelled. Settings unchanged.', 'info');
+            return;
+          }
+          if (!choices.includes(level as Reasoning)) {
+            report(ctx, 'Unsupported compaction reasoning. Settings unchanged. Use /compaction-model reasoning to inspect supported levels.', 'error');
+            return;
+          }
+          await saveSelection(path, { ...current, reasoning: level as Reasoning });
+          report(ctx, `Compaction reasoning: ${level}. Saved globally. Conversation thinking level unchanged.`, 'info');
+          return;
+        }
         if (tokens[0] === 'show' || (!tokens.length && !ctx.hasUI)) {
-          report(ctx, `Compaction model: ${current ? current.provider + '/' + current.model : 'Pi default (conversation model)'}.\n${USAGE}\nSettings: ${path}`, 'info');
+          report(ctx, `Compaction model: ${current ? current.provider + '/' + current.model : 'Pi default (conversation model)'}. Reasoning: ${current?.reasoning ?? 'default'}.\n${USAGE}\nSettings: ${path}`, 'info');
           return;
         }
         await ctx.waitForIdle();
@@ -116,9 +151,10 @@ export default function (pi: ExtensionAPI): void {
           report(ctx, models.length ? 'Selection cancelled. Settings unchanged.' : 'No available compaction models. Settings unchanged.', 'info');
           return;
         }
-        resolveModel(ctx, pair);
-        await saveSelection(path, pair);
-        report(ctx, `Compaction model: ${pair.provider}/${pair.model}. Saved globally. Conversation model unchanged.`, 'info');
+        const selection: Selection = { provider: pair.provider, model: pair.model };
+        resolveModel(ctx, selection);
+        await saveSelection(path, selection);
+        report(ctx, `Compaction model: ${pair.provider}/${pair.model}. Reasoning: default. Saved globally. Conversation model unchanged.`, 'info');
       } catch {
         report(ctx, 'Cannot configure the compaction model. Inspect /compaction-model show before retrying.', 'error');
       }
@@ -139,7 +175,7 @@ export default function (pi: ExtensionAPI): void {
       category = 'summary-error';
       const result = await compact(
         cumulativePreparation(event), model, undefined, undefined, event.customInstructions, event.signal,
-        undefined,
+        pair.reasoning === 'default' ? undefined : pair.reasoning,
         async (_model, context, options) => {
           category = 'summary-error';
           budget = undefined;

@@ -36,7 +36,9 @@ Installation changes Pi settings. This repository does not install itself or sel
 | --- | --- |
 | `/compaction-model` | Open the searchable model picker |
 | `/compaction-model <provider> <model>` | Save an available physical chat model |
-| `/compaction-model show` | Show the saved selection and settings path |
+| `/compaction-model reasoning` | Select supported reasoning effort with UI, or list choices without UI |
+| `/compaction-model reasoning <level>` | Save reasoning effort for the selected compaction model |
+| `/compaction-model show` | Show the saved model, reasoning effort, and settings path |
 | `/compaction-model reset` | Restore Pi's default compaction behavior |
 
 For example, if you have configured Google authentication:
@@ -50,7 +52,18 @@ This example does not guarantee the lowest price. Check your provider's rates an
 
 The picker lists models that Pi reports as available. Escape cancels without a settings change. RPC uses a select dialog. Without UI, the bare command shows the selection and usage.
 
-Selection does not call a model. Later compaction sends session contents to the selected provider. Check that provider's billing and retention terms.
+Use `/compaction-model reasoning` after model selection to choose the summarizer's reasoning effort. For example:
+
+```text
+/compaction-model reasoning low
+/compaction-model reasoning default
+```
+
+Choices are `default` plus the levels Pi advertises for the selected model. Possible levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Not every model supports every level. Non-reasoning models offer only `default` and `off`.
+
+Omission and `default` keep the previous provider behavior. `off` uses Pi's native helper behavior, which omits the reasoning option. Neither setting guarantees that an always-reasoning provider disables internal reasoning. Selecting a model again resets effort to `default`. Escape leaves settings unchanged.
+
+Selection does not call a model. Later compaction sends session contents to the selected provider. Check that provider's billing and retention terms. Higher reasoning effort can increase cost and latency.
 
 ## Behavior
 
@@ -59,7 +72,9 @@ Selection does not call a model. Later compaction sends session contents to the 
 - Pi keeps its summary format, recent messages, previous summary, split-turn handling, and usage accounting.
 - File lists remain cumulative across this extension's compactions.
 - Branch summaries still use Pi's default behavior.
-- The extension does not add retries or inherit conversation reasoning settings.
+- The extension uses the saved compaction reasoning effort, not the conversation thinking level.
+- Both split-turn requests keep the model and effort loaded at compaction start.
+- The extension does not add retries or change Pi's summary-output allowance.
 - Failed or cancelled configured compaction stops. It does not fall back to the conversation model.
 - With no selection, Pi uses its normal compaction.
 
@@ -81,7 +96,7 @@ No default-model fallback.
 
 | Category | Meaning |
 | --- | --- |
-| `settings` | The extension could not read valid settings. |
+| `settings` | The extension could not read valid settings, or the saved reasoning effort is unsupported. |
 | `model-unavailable` | Model lookup failed, or the selected model is missing or virtual. |
 | `authentication-unavailable` | Pi's configured-auth check failed. |
 | `context-window` | The local input estimate plus output allowance exceeds the window, or the window is not positive. |
@@ -109,12 +124,15 @@ The selection persists across sessions in `<agentDir>/compaction-model.json`. Pi
 {
   "model": {
     "provider": "google",
-    "model": "gemini-2.5-flash"
+    "model": "gemini-2.5-flash",
+    "reasoning": "low"
   }
 }
 ```
 
-A missing file or `{}` enables Pi's default behavior. The package does not support project overrides.
+The `reasoning` field is optional. Existing model-only settings retain their previous behavior. Unsupported saved effort stops compaction before provider dispatch. Use `/compaction-model reasoning default` to repair it when the model remains available.
+
+A missing file or `{}` enables Pi's default behavior. `/compaction-model reset` clears the model and reasoning effort. The package does not support project overrides.
 
 Malformed settings stop configured compaction. Use `/compaction-model reset` to repair a malformed regular file. Reads and writes reject symlinks and non-regular files. The settings limit is 16384 bytes, inclusive.
 
@@ -152,5 +170,6 @@ The [generated contract](docs/pi-compaction-model.md) comes from the maintainer 
 | AC-7 | Public metadata, peers, npm installation docs | Failed: package private | Pass |
 | AC-8 | Prepublish verification success and failure | Failed: hook absent | Pass |
 | AC-9 | Safe categories, request budgets, privacy and abort precedence | Failed: generic report | Pass |
+| AC-10 | Reasoning commands, settings, supported choices, native requests and split-turn pinning | 24 changed checks failed. Invalid-value preservation passed. Existing 47 checks passed. | Pass: all 25 reasoning checks and existing 47 checks |
 
 Additional `AgentSession` checks confirm single summary persistence, retained context, reload metadata, and failure cancellation without fallback.

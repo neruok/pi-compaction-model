@@ -4,18 +4,22 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { withFileMutationQueue } from '@earendil-works/pi-coding-agent';
 
-export type Selection = { provider: string; model: string };
+export const REASONING_LEVELS = ['default', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type Reasoning = typeof REASONING_LEVELS[number];
+export type Selection = { provider: string; model: string; reasoning?: Reasoning };
 const MAX_BYTES = 16384;
 const object = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 function parseSelection(value: unknown): Selection {
-  if (!object(value) || Object.keys(value).length !== 2 ||
+  if (!object(value) || Object.keys(value).some(key => !['provider', 'model', 'reasoning'].includes(key)) ||
       typeof value.provider !== 'string' || !/^\S+$/u.test(value.provider) ||
-      typeof value.model !== 'string' || !/^\S+$/u.test(value.model)) {
+      typeof value.model !== 'string' || !/^\S+$/u.test(value.model) ||
+      (value.reasoning !== undefined && !REASONING_LEVELS.includes(value.reasoning as Reasoning))) {
     throw new Error('Invalid compaction model settings.');
   }
-  return { provider: value.provider, model: value.model };
+  return { provider: value.provider, model: value.model,
+    ...(value.reasoning === undefined ? {} : { reasoning: value.reasoning as Reasoning }) };
 }
 
 export async function loadSelection(path: string): Promise<Selection | undefined> {
